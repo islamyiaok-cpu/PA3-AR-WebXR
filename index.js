@@ -16,6 +16,7 @@ let overlay, panel, statusEl, fallbackEl;
 // ---------- global xr values ----------
 let xrSession = null, hitTestSource = null, hitTestSourceRequested = false;
 let placeRequested = false;
+let reticleText = "none"; // none / valid (angle) / too tilted (angle)
 const placed = []; // { object, anchor, yaw } (used from Day 2-3)
 
 loadScene();
@@ -55,7 +56,21 @@ function loadScene() {
     if (!renderer.xr.isPresenting) renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  // TODO Day 2: reticle, product, lights, controller 'select'
+  // Reticle: a flat ring lying on the surface. Its matrix is set from the hit pose
+  // every frame, so Three.js must not recompute it (matrixAutoUpdate = false).
+  reticle = new THREE.Mesh(
+    new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2), // PORTING FIX 2: RingGeometry, not RingBufferGeometry
+    new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+  );
+  reticle.matrixAutoUpdate = false;
+  reticle.visible = false;
+  scene.add(reticle);
+
+  // The 'select' handler only raises a flag; the placement itself happens
+  // inside the next frame callback with that frame's hit result (Task D).
+  controller = renderer.xr.getController(0);
+  controller.addEventListener("select", () => { placeRequested = true; });
+  scene.add(controller);
 
   checkSupport();
 }
@@ -152,7 +167,35 @@ function render(time, frame) {
         })
         .catch((e) => console.warn("hit-test source request failed:", e));
     }
-    // TODO Day 2: hit results -> reticle, tilt filter
+    // Hit results are read in the LOCAL space (the space the scene lives in),
+    // while the source was created from the VIEWER space (it follows the phone).
+    const localSpace = renderer.xr.getReferenceSpace();
+    let valid = false;
+    let hasHit = false;
+    reticleText = "none";
+    if (hitTestSource && localSpace) {
+      const results = frame.getHitTestResults(hitTestSource);
+      if (results.length > 0) {
+        const pose = results[0].getPose(localSpace);
+        if (pose) {
+          hasHit = true;
+          const m = pose.transform.matrix;          // 16 numbers, column-major
+          reticle.matrix.fromArray(m);
+          reticle.matrixWorldNeedsUpdate = true;
+          const tilt = tiltDegrees(m);
+          valid = tilt <= VARIANT.toleranceDeg;     // 8 degrees for ID 242322
+          reticle.material.color.set(valid ? 0x00ff00 : 0xff0000);
+          reticleText = (valid ? "valid" : "too tilted") + ` (${tilt.toFixed(1)}°)`;
+        }
+      }
+    }
+    reticle.visible = hasHit;
+
+    if (placeRequested) {
+      placeRequested = false;
+      // Day 3: real placement. For now only a log so the tap path can be tested.
+      console.log("tap received, reticle valid =", valid);
+    }
     // TODO Day 3: placement + anchors
     updateStatus();
   }
@@ -172,10 +215,21 @@ function onSessionEnd() {
     hitTestSource = null;
   }
   clearAll();
+  reticleText = "none";
+  if (reticle) reticle.visible = false;
   if (renderer) renderer.setAnimationLoop(null);
   overlay.style.display = "none";
   if (btn) { btn.textContent = "START AR"; btn.disabled = false; }
   updateStatus();
+}
+
+// Angle between the surface normal and world up (0,1,0).
+// In a hit pose matrix the surface normal is the y-axis column = elements 4, 5, 6.
+// cos(angle) = dot(normal, up) / |normal| = m[5] / |normal|
+function tiltDegrees(m) {
+  const len = Math.hypot(m[4], m[5], m[6]);
+  const c = Math.min(1, Math.max(-1, m[5] / len));
+  return (Math.acos(c) * 180) / Math.PI;
 }
 
 // ---------- products (full logic comes on Day 3) ----------
@@ -199,6 +253,7 @@ function updateStatus() {
     `mode: ${VARIANT.mode} (max ${VARIANT.maxProducts}) · tol ${VARIANT.toleranceDeg}° · faces user`,
     `session: ${xrSession ? "active" : "inactive"}`,
     `hit-test source: ${hitTestSource ? "ready" : "waiting"}`,
+    `reticle: ${reticleText}`,
   ].join("\n");
   if (text !== lastStatus) { statusEl.textContent = text; lastStatus = text; }
 }
