@@ -139,7 +139,7 @@ async function onSessionStarted(session) {
   btn.textContent = "STOP AR";
   btn.disabled = false;
   fallbackEl.hidden = true;
-  overlay.style.display = "";
+  overlay.style.display = "block";
 
   try {
     // PORTING NOTE: setSession() already does makeXRCompatible + creates the
