@@ -17,7 +17,8 @@ let overlay, panel, statusEl, fallbackEl;
 let xrSession = null, hitTestSource = null, hitTestSourceRequested = false;
 let placeRequested = false;
 let reticleText = "none"; // none / valid (angle) / too tilted (angle)
-const placed = []; // { object, anchor, yaw } (used from Day 2-3)
+let product;           // template product; each placement clones it (Day 3)
+const placed = []; // { object, anchor, yaw } (used from Day 3)
 
 loadScene();
 
@@ -55,6 +56,15 @@ function loadScene() {
     camera.updateProjectionMatrix();
     if (!renderer.xr.isPresenting) renderer.setSize(window.innerWidth, window.innerHeight);
   });
+
+  // Light: one HemisphereLight (sky/ground) + one DirectionalLight, as required.
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.0));
+  const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+  sun.position.set(1, 3, 2);
+  scene.add(sun);
+
+  product = buildProduct();
+  checkProductSize(product);
 
   // Reticle: a flat ring lying on the surface. Its matrix is set from the hit pose
   // every frame, so Three.js must not recompute it (matrixAutoUpdate = false).
@@ -230,6 +240,47 @@ function tiltDegrees(m) {
   const len = Math.hypot(m[4], m[5], m[6]);
   const c = Math.min(1, Math.max(-1, m[5] / len));
   return (Math.acos(c) * 180) / Math.PI;
+}
+
+// ---------- product: coffee table (ID 242322, last digit 2) ----------
+// Units: metres. Origin = centre of the base (on the floor). Front = +z side.
+// Target: top 1.00 x 0.50, total height 0.45, 4 legs.
+function buildProduct() {
+  const group = new THREE.Group();
+  const wood = new THREE.MeshStandardMaterial({ color: 0x8b5a2b, roughness: 0.7 });
+  const dark = new THREE.MeshStandardMaterial({ color: 0x3b2a1a, roughness: 0.8 });
+  const accent = new THREE.MeshStandardMaterial({ color: 0xc9a227, metalness: 0.4, roughness: 0.4 });
+
+  // 1) table top: 1.00 (x) x 0.04 (y) x 0.50 (z); its top face is at y = 0.45
+  const top = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.04, 0.5), wood);
+  top.position.set(0, 0.43, 0);
+  group.add(top);
+
+  // 2-5) four legs: 0.05 x 0.41 x 0.05, from the floor (y = 0) up to the top (y = 0.41)
+  const legGeo = new THREE.BoxGeometry(0.05, 0.41, 0.05);
+  for (const sx of [-1, 1]) {
+    for (const sz of [-1, 1]) {
+      const leg = new THREE.Mesh(legGeo, dark);
+      leg.position.set(sx * 0.45, 0.205, sz * 0.2);
+      group.add(leg);
+    }
+  }
+
+  // 6) front marker (+z side) so the "faces the user" rule is visible
+  const front = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.05, 0.02), accent);
+  front.position.set(0, 0.385, 0.235);
+  group.add(front);
+
+  return group;
+}
+
+// Task C check: every dimension must be within +-2 cm of 1.00 x 0.45 x 0.50 m.
+function checkProductSize(obj) {
+  const size = new THREE.Vector3();
+  new THREE.Box3().setFromObject(obj).getSize(size);
+  console.log(`product size (m): x=${size.x.toFixed(3)} y=${size.y.toFixed(3)} z=${size.z.toFixed(3)} (target 1.00 x 0.45 x 0.50)`);
+  const ok = Math.abs(size.x - 1.0) <= 0.02 && Math.abs(size.y - 0.45) <= 0.02 && Math.abs(size.z - 0.5) <= 0.02;
+  console.log(ok ? "size check: OK (within +-2 cm)" : "size check: OUT OF TOLERANCE");
 }
 
 // ---------- products (full logic comes on Day 3) ----------
