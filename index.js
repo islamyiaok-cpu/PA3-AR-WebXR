@@ -17,6 +17,7 @@ let overlay, panel, statusEl, fallbackEl;
 let xrSession = null, hitTestSource = null, hitTestSourceRequested = false;
 let placeRequested = false;
 let reticleText = "none"; // none / valid (angle) / too tilted (angle)
+let dbgTime = 0, dbgPose = "?", dbgResults = 0; // temporary diagnostics shown in the overlay
 let product;           // template product; each placement clones it (Day 3)
 const placed = []; // { object, anchor, yaw } (used from Day 3)
 
@@ -139,7 +140,7 @@ async function onSessionStarted(session) {
   btn.textContent = "STOP AR";
   btn.disabled = false;
   fallbackEl.hidden = true;
-  overlay.style.display = "block";
+  overlay.style.display = "block"; // "" would keep the CSS rule display:none
 
   try {
     // PORTING NOTE: setSession() already does makeXRCompatible + creates the
@@ -183,8 +184,13 @@ function render(time, frame) {
     let valid = false;
     let hasHit = false;
     reticleText = "none";
+    dbgTime = Math.floor(time / 1000);
+    const vp = localSpace ? frame.getViewerPose(localSpace) : null;
+    dbgPose = !vp ? "null" : (vp.emulatedPosition ? "emulated" : "tracked");
+    dbgResults = 0;
     if (hitTestSource && localSpace) {
       const results = frame.getHitTestResults(hitTestSource);
+      dbgResults = results.length;
       if (results.length > 0) {
         const pose = results[0].getPose(localSpace);
         if (pose) {
@@ -305,6 +311,7 @@ function updateStatus() {
     `session: ${xrSession ? "active" : "inactive"}`,
     `hit-test source: ${hitTestSource ? "ready" : "waiting"}`,
     `reticle: ${reticleText}`,
+    `debug: t=${dbgTime}s · pose ${dbgPose} · hit results ${dbgResults}`,
   ].join("\n");
   if (text !== lastStatus) { statusEl.textContent = text; lastStatus = text; }
 }
