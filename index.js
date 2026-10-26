@@ -10,6 +10,12 @@ const VARIANT = {
   faceUser: true,            // 4th-to-last digit 2 -> 2 mod 2 = 0 -> faces the user
 };
 
+// ---------- DIAGNOSTIC flags (temporary) ----------
+// ?ownctx=0 -> let Three.js create its own WebGL context instead of ours
+const OWN_CTX = new URLSearchParams(location.search).get("ownctx") === "0";
+let testCube, hitMarker;
+const tmpF = new THREE.Vector3(), tmpQ = new THREE.Quaternion();
+
 // ---------- global scene values ----------
 let btn, stopBtn, gl, glCanvas, camera, scene, renderer, controller, reticle;
 let overlay, panel, statusEl, fallbackEl;
@@ -46,7 +52,9 @@ function loadScene() {
   camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 1000);
   scene = new THREE.Scene();
 
-  renderer = new THREE.WebGLRenderer({ canvas: glCanvas, context: gl });
+  renderer = OWN_CTX
+    ? new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    : new THREE.WebGLRenderer({ canvas: glCanvas, context: gl });
   renderer.setPixelRatio(window.devicePixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.xr.enabled = true;
@@ -71,11 +79,19 @@ function loadScene() {
   // every frame, so Three.js must not recompute it (matrixAutoUpdate = false).
   reticle = new THREE.Mesh(
     new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2), // PORTING FIX 2: RingGeometry, not RingBufferGeometry
-    new THREE.MeshBasicMaterial({ color: 0x00ff00 })
+    new THREE.MeshBasicMaterial({ color: 0x00ff00, side: THREE.DoubleSide })
   );
   reticle.matrixAutoUpdate = false;
   reticle.visible = false;
   scene.add(reticle);
+
+  // DIAGNOSTIC objects: a magenta cube always 1 m in front of the phone, and a
+  // cyan cube at the hit position (set from the position only, not the matrix).
+  testCube = new THREE.Mesh(new THREE.BoxGeometry(0.15, 0.15, 0.15), new THREE.MeshBasicMaterial({ color: 0xff00ff }));
+  scene.add(testCube);
+  hitMarker = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.08, 0.08), new THREE.MeshBasicMaterial({ color: 0x00ffff }));
+  hitMarker.visible = false;
+  scene.add(hitMarker);
 
   // The 'select' handler only raises a flag; the placement itself happens
   // inside the next frame callback with that frame's hit result (Task D).
@@ -188,6 +204,15 @@ function render(time, frame) {
     const vp = localSpace ? frame.getViewerPose(localSpace) : null;
     dbgPose = !vp ? "null" : (vp.emulatedPosition ? "emulated" : "tracked");
     dbgResults = 0;
+    hitMarker.visible = false;
+    if (vp) {
+      const p = vp.transform.position, q = vp.transform.orientation;
+      tmpF.set(0, 0, -1).applyQuaternion(tmpQ.set(q.x, q.y, q.z, q.w));
+      testCube.position.set(p.x + tmpF.x, p.y + tmpF.y, p.z + tmpF.z);
+      testCube.visible = true;
+    } else {
+      testCube.visible = false;
+    }
     if (hitTestSource && localSpace) {
       const results = frame.getHitTestResults(hitTestSource);
       dbgResults = results.length;
@@ -197,6 +222,8 @@ function render(time, frame) {
           hasHit = true;
           const m = pose.transform.matrix;          // 16 numbers, column-major
           reticle.matrix.fromArray(m);
+          hitMarker.position.set(m[12], m[13], m[14]);
+          hitMarker.visible = true;
           reticle.matrixWorldNeedsUpdate = true;
           const tilt = tiltDegrees(m);
           valid = tilt <= VARIANT.toleranceDeg;     // 8 degrees for ID 242322
@@ -312,6 +339,7 @@ function updateStatus() {
     `hit-test source: ${hitTestSource ? "ready" : "waiting"}`,
     `reticle: ${reticleText}`,
     `debug: t=${dbgTime}s · pose ${dbgPose} · hit results ${dbgResults}`,
+    `context: ${OWN_CTX ? "three.js own" : "custom webgl2"}`,
   ].join("\n");
   if (text !== lastStatus) { statusEl.textContent = text; lastStatus = text; }
 }
