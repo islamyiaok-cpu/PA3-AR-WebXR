@@ -21,6 +21,7 @@
     #status { white-space: pre-line; }
     #tracking { color: #ffb4a9; font-weight: 700; margin-top: 4px; }
     #panel button { font-size: 1rem; padding: 8px 14px; margin: 6px 6px 0 0; }
+    #log { white-space: pre; font-size: 11px; margin-top: 6px; max-width: 92vw; overflow: hidden; }
   </style>
 </head>
 <body>
@@ -36,6 +37,8 @@
       <div id="tracking" hidden>Tracking lost — move the phone slowly</div>
       <button id="clear">Clear</button>
       <button id="stop">STOP AR</button>
+      <button id="logpose">Log pose</button>
+      <div id="log"></div>
     </div>
   </div>
 
