@@ -22,11 +22,14 @@ let anchorsOn = false;
 let trackingLost = false;
 let reticleText = "none"; // none / valid (angle) / too tilted (angle)
 let logRequested = false, startLogged = false;
+let hitCount = 0;
 let product;                // template product; each placement clones it
 const placed = [];          // { object, anchor, yaw, removed }
 
 // Test switch for experiment E2a (anchors on vs off): open the page with ?anchors=off
 const ANCHORS_OFF = new URLSearchParams(location.search).get("anchors") === "off";
+// Test switch for experiment E2b (local vs local-floor): open the page with ?space=floor
+const FLOOR = new URLSearchParams(location.search).get("space") === "floor";
 
 const UP = new THREE.Vector3(0, 1, 0);
 const ONE = new THREE.Vector3(1, 1, 1);
@@ -37,6 +40,8 @@ const tmpQuat = new THREE.Quaternion();
 loadScene();
 
 function loadScene() {
+  window.addEventListener("error", (e) => log("ERROR: " + e.message));
+  window.addEventListener("unhandledrejection", (e) => log("PROMISE ERROR: " + e.reason));
   overlay = document.getElementById("overlay");
   panel = document.getElementById("panel");
   statusEl = document.getElementById("status");
@@ -49,7 +54,7 @@ function loadScene() {
   document.getElementById("logpose").addEventListener("click", () => { logRequested = true; });
   // Taps on the panel must not also count as an XR "select" (placement).
   panel.addEventListener("beforexrselect", (e) => e.preventDefault());
-
+  overlay.addEventListener("beforexrselect", (e) => e.preventDefault());
   // PORTING FIX 1: Three.js >= r163 dropped WebGL1, so the book's
   // getContext('webgl') makes the WebGLRenderer constructor throw.
   glCanvas = document.createElement("canvas");
@@ -136,7 +141,7 @@ function onRequestSession() {
   navigator.xr
     .requestSession("immersive-ar", {
       requiredFeatures: ["hit-test"],
-      optionalFeatures: ANCHORS_OFF ? ["dom-overlay"] : ["anchors", "dom-overlay"],
+      optionalFeatures: [...(ANCHORS_OFF ? [] : ["anchors"]), "dom-overlay", ...(FLOOR ? ["local-floor"] : [])],
       domOverlay: { root: overlay },
     })
     .then(onSessionStarted)
@@ -163,7 +168,7 @@ async function onSessionStarted(session) {
   try {
     // setSession() already does makeXRCompatible + creates the XR layer,
     // so the book's setupWebGLLayer() is not needed.
-    renderer.xr.setReferenceSpaceType("local");
+    renderer.xr.setReferenceSpaceType(FLOOR ? "local-floor" : "local");
     await renderer.xr.setSession(session);
   } catch (err) {
     console.error("setSession failed:", err);
@@ -194,9 +199,10 @@ function render(time, frame) {
         })
         .then((source) => {
           if (xrSession !== session) { source.cancel(); return; } // session ended meanwhile
-          hitTestSource = source;
+                   hitTestSource = source;
+          log("hit-test source: ready");
         })
-        .catch((e) => console.warn("hit-test source request failed:", e));
+        .catch((e) => { console.warn("hit-test source request failed:", e); log("hit-test source FAILED: " + e); });
     }
 
     const localSpace = renderer.xr.getReferenceSpace();
@@ -207,15 +213,17 @@ function render(time, frame) {
     if (viewerPose && !startLogged) {
       startLogged = true;
       const p = viewerPose.transform.position;
-      log(`camera in local (start): ${fmt3(p.x, p.y, p.z)}`);
+      log(`camera in ${FLOOR ? "local-floor" : "local"} (start): ${fmt3(p.x, p.y, p.z)}`);
     }
 
     // Hit results are read in the LOCAL space (the space the scene lives in),
     // while the source was created from the VIEWER space (it follows the phone).
     let hit = null, hitMatrix = null, valid = false;
+    hitCount = 0;
     reticleText = "none";
     if (hitTestSource && localSpace) {
       const results = frame.getHitTestResults(hitTestSource);
+            hitCount = results.length;
       if (results.length > 0) {
         const pose = results[0].getPose(localSpace);
         if (pose) {
@@ -414,7 +422,7 @@ function logMatrix(m) {
 function logPose(localSpace, viewerPose, hit) {
   if (viewerPose) {
     const p = viewerPose.transform.position;
-    log(`camera in local: ${fmt3(p.x, p.y, p.z)}`);
+    log(`camera in ${FLOOR ? "local-floor" : "local"}: ${fmt3(p.x, p.y, p.z)}`);
   } else {
     log("camera pose: null (tracking lost)");
   }
@@ -441,6 +449,8 @@ function updateStatus() {
     `${VARIANT.mode} (max ${maxCount}) · tol ${VARIANT.toleranceDeg}° · ${facingText}`,
     `session: ${xrSession ? "active" : "inactive"}`,
     `reticle: ${reticleText}`,
+    `hit results: ${hitCount}`,
+    `space: ${FLOOR ? "local-floor" : "local"}`,
     `anchors: ${anchorsOn ? "on" : "off"}`,
     `products: ${placed.length} / ${maxCount}`,
   ].join("\n");
