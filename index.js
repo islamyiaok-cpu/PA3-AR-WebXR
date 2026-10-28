@@ -54,7 +54,6 @@ function loadScene() {
   document.getElementById("logpose").addEventListener("click", () => { logRequested = true; });
   // Taps on the panel must not also count as an XR "select" (placement).
   panel.addEventListener("beforexrselect", (e) => e.preventDefault());
-  overlay.addEventListener("beforexrselect", (e) => e.preventDefault());
   // PORTING FIX 1: Three.js >= r163 dropped WebGL1, so the book's
   // getContext('webgl') makes the WebGLRenderer constructor throw.
   glCanvas = document.createElement("canvas");
